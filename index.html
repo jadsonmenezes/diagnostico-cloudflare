@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Diagnóstico de Conexão - HTTPS / TLS / WS</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #05070b;
+      color: #f7f7ff;
+    }
+    h1 {
+      font-size: 22px;
+      margin: 0 0 16px 0;
+    }
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      margin-top: 10px;
+    }
+    input[type="text"], textarea {
+      width: 100%;
+      padding: 10px 12px;
+      margin-top: 4px;
+      border-radius: 10px;
+      border: 1px solid #272b3a;
+      background: #111521;
+      color: #f7f7ff;
+      font-size: 14px;
+      outline: none;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 70px;
+    }
+    input[type="checkbox"] {
+      accent-color: #00c851;
+      transform: scale(1.1);
+      margin-right: 6px;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    button {
+      width: 100%;
+      border: none;
+      border-radius: 999px;
+      padding: 12px 16px;
+      margin-top: 14px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.05s ease, box-shadow 0.05s ease, opacity 0.1s ease;
+    }
+    button:active {
+      transform: translateY(1px);
+      box-shadow: none;
+      opacity: .9;
+    }
+    #runBtn {
+      background: #00c851;
+      color: #02110a;
+      box-shadow: 0 0 0 1px #00c85133, 0 10px 20px rgba(0, 200, 81, .25);
+    }
+    #copyBtn {
+      background: #39c0ed;
+      color: #001018;
+      box-shadow: 0 0 0 1px #39c0ed33, 0 10px 20px rgba(57, 192, 237, .25);
+    }
+    .hint {
+      font-size: 11px;
+      opacity: .8;
+      margin-top: 4px;
+    }
+    .tests-title {
+      margin-top: 22px;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .card {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #0b0f1b;
+      border: 1px solid #1f2434;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .card-detail {
+      font-size: 13px;
+      margin-top: 4px;
+      opacity: .9;
+    }
+    .status-ok {
+      color: #00ff99;
+      font-weight: 700;
+    }
+    .status-err {
+      color: #ff6b8b;
+      font-weight: 700;
+    }
+    pre {
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #050811;
+      border: 1px solid #1a2130;
+      font-size: 11px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .footer-note {
+      font-size: 11px;
+      opacity: .7;
+      margin-top: 6px;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      border-radius: 999px;
+      padding: 2px 10px;
+      background: #11182a;
+      border: 1px solid #293149;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="badge">v1 · modo Cloudflare Pages + Functions</div>
+  <h1>🔍 Diagnóstico de conexão (HTTPS / TLS / WS)</h1>
+
+  <label for="inputUrl">URL do delivery que está com erro</label>
+  <input id="inputUrl" type="text" placeholder="https://sualoja.goomer.app/" />
+
+  <label for="inputNotes">Observações (opcional)</label>
+  <textarea id="inputNotes" placeholder="Ex.: erro ERR_SSL_PROTOCOL_ERROR no celular do cliente."></textarea>
+
+  <div class="checkbox-row">
+    <input type="checkbox" id="checkWS" checked />
+    <label for="checkWS" style="margin:0;font-weight:500;">Incluir teste de WebSocket seguro (wss://)</label>
+  </div>
+
+  <button id="runBtn" type="button" onclick="runTests()">▶ Executar testes de conexão</button>
+  <button id="copyBtn" type="button" onclick="copyResult()">📋 Copiar resultado</button>
+  <div class="hint">Dica: peça para o cliente rodar os testes e enviar o JSON copiado + print da tela.</div>
+
+  <div class="tests-title">Testes executados</div>
+  <div id="tests"></div>
+
+  <h2 style="margin-top:20px;font-size:18px;">Resumo técnico (copiar e colar para o suporte)</h2>
+  <pre id="output"></pre>
+  <div class="footer-note">
+    Ao finalizar, peça para o cliente enviar um print desta tela e colar o resumo técnico acima no chamado/conversa.
+  </div>
+
+<script>
+async function runTests() {
+  const url = document.getElementById('inputUrl').value.trim();
+  const notes = document.getElementById('inputNotes').value.trim();
+  const includeWS = document.getElementById('checkWS').checked;
+  const testsDiv = document.getElementById('tests');
+  const out = document.getElementById('output');
+
+  testsDiv.innerHTML = '<div class="card"><div class="card-detail">Executando testes...</div></div>';
+  out.textContent = '';
+
+  if (!url || !url.startsWith('https://')) {
+    alert('Informe uma URL HTTPS válida, por exemplo: https://sualoja.goomer.app/');
+    return;
+  }
+
+  const host = url.replace('https://','').replace(/\/$/, '');
+
+  const result = {
+    inputUrl: url,
+    testedHost: host,
+    notes: notes || null,
+    environment: {
+      timestamp: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      language: navigator.language,
+      platform: navigator.platform,
+      connection: navigator.connection ? {
+        effectiveType: navigator.connection.effectiveType,
+        rtt: navigator.connection.rtt,
+        downlink: navigator.connection.downlink,
+        saveData: navigator.connection.saveData
+      } : null
+    },
+    results: []
+  };
+
+  const cards = [];
+
+  // 1) HTTPS direto (navegador)
+  try {
+    await fetch(url, { mode: 'no-cors' });
+    result.results.push({ id:'https_nocors', ok:true });
+    cards.push(renderCard('Acesso HTTPS direto (navegador)', true, 'Navegador conseguiu iniciar conexão HTTPS (handshake TLS aparente OK).'));
+  } catch (e) {
+    result.results.push({ id:'https_nocors', ok:false, error:String(e) });
+    cards.push(renderCard('Acesso HTTPS direto (navegador)', false, 'Falha ao iniciar conexão HTTPS no navegador: ' + e));
+  }
+
+  // 2) HEAD via função
+  try {
+    const r = await fetch('/api/head?url=' + encodeURIComponent(url));
+    const data = await r.json();
+    if (data.ok) {
+      result.results.push({ id:'head_status', ok:true, status:data.status });
+      cards.push(renderCard('Requisição HEAD (status HTTP)', true, 'Status HTTP retornado pelo servidor: ' + data.status));
+    } else {
+      result.results.push({ id:'head_status', ok:false, error:data.error || 'Erro HEAD' });
+      cards.push(renderCard('Requisição HEAD (status HTTP)', false, data.error || 'Erro na função /api/head.'));
+    }
+  } catch (e) {
+    result.results.push({ id:'head_status', ok:false, error:String(e) });
+    cards.push(renderCard('Requisição HEAD (status HTTP)', false, 'Falha na função /api/head: ' + e));
+  }
+
+  // 3) GET via função
+  try {
+    const r = await fetch('/api/get?url=' + encodeURIComponent(url));
+    const data = await r.json();
+    if (data.ok) {
+      result.results.push({ id:'get_status', ok:true, status:data.status });
+      cards.push(renderCard('Requisição GET (via servidor)', true, 'Status HTTP retornado pelo servidor: ' + data.status));
+    } else {
+      result.results.push({ id:'get_status', ok:false, error:data.error || 'Erro GET' });
+      cards.push(renderCard('Requisição GET (via servidor)', false, data.error || 'Erro na função /api/get.'));
+    }
+  } catch (e) {
+    result.results.push({ id:'get_status', ok:false, error:String(e) });
+    cards.push(renderCard('Requisição GET (via servidor)', false, 'Falha na função /api/get: ' + e));
+  }
+
+  // 4) Carregamento de imagem (favicon)
+  try {
+    const r = await fetch('/api/img?url=' + encodeURIComponent(url));
+    const data = await r.json();
+    if (data.ok) {
+      result.results.push({ id:'img_load', ok:true });
+      cards.push(renderCard('Carregamento de imagem (favicon)', true, 'Servidor conseguiu baixar o favicon (pode indicar TLS/HTTPS OK para recursos).'));
+    } else {
+      result.results.push({ id:'img_load', ok:false, error:data.error || 'Erro imagem' });
+      cards.push(renderCard('Carregamento de imagem (favicon)', false, data.error || 'Erro ao carregar favicon via servidor.'));
+    }
+  } catch (e) {
+    result.results.push({ id:'img_load', ok:false, error:String(e) });
+    cards.push(renderCard('Carregamento de imagem (favicon)', false, 'Falha na função /api/img: ' + e));
+  }
+
+  // 5) WebSocket seguro direto no navegador (opcional)
+  if (includeWS) {
+    try {
+      await testWS('wss://' + host);
+      result.results.push({ id:'wss_browser', ok:true });
+      cards.push(renderCard('WebSocket seguro (navegador)', true, 'Conseguiu abrir conexão WSS no navegador (handshake OK).'));
+    } catch (e) {
+      result.results.push({ id:'wss_browser', ok:false, error:String(e) });
+      cards.push(renderCard('WebSocket seguro (navegador)', false, 'Erro ao abrir conexão WSS no navegador: ' + e));
+    }
+  }
+
+  document.getElementById('tests').innerHTML = cards.join('\n');
+  out.textContent = JSON.stringify(result, null, 2);
+}
+
+function renderCard(title, ok, detail) {
+  return `<div class="card">
+    <div class="card-header">
+      <span>${title}</span>
+      <span class="${ok ? 'status-ok' : 'status-err'}">${ok ? 'OK' : 'Falhou'}</span>
+    </div>
+    <div class="card-detail">${detail || ''}</div>
+  </div>`;
+}
+
+function testWS(url) {
+  return new Promise((resolve, reject) => {
+    try {
+      const ws = new WebSocket(url);
+      const timer = setTimeout(() => {
+        try { ws.close(); } catch (_) {}
+        reject('timeout');
+      }, 5000);
+      ws.onopen = () => {
+        clearTimeout(timer);
+        try { ws.close(); } catch (_) {}
+        resolve();
+      };
+      ws.onerror = () => {
+        clearTimeout(timer);
+        reject('erro WS');
+      };
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function copyResult() {
+  const text = document.getElementById('output').textContent;
+  if (!text) {
+    alert('Nenhum resultado para copiar ainda. Rode os testes primeiro.');
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => {
+    alert('Resumo técnico copiado. Cole na conversa com o suporte.');
+  }).catch(() => {
+    alert('Não foi possível copiar automaticamente. Selecione e copie o texto manualmente.');
+  });
+}
+</script>
+</body>
+</html>
